@@ -1,6 +1,7 @@
 import { loadFilter } from "./src/loadFilter.js";
-import { applyFilter } from "./src/applyFilter.js";
+import { processImageWithFilter } from "./src/applyFilter.js";
 import { loadImg } from "./src/loadImg.js";
+import { applyLocalHistogramProcessing } from "./src/equalization.js";
 
 // Lista de todos os filtros solicitados
 const filterFiles = [
@@ -14,15 +15,21 @@ const filterFiles = [
 
 // Lista de imagens para testar
 const testImages = [
-  "images/Shapes.png",
+  "images/CobblestoneBrickCityAlley_byBrunoPassigatti.jpg"
 ];
 
 async function testAllFilters() {
-  
   for (const imagePath of testImages) {
     console.log(`📸 Carregando imagem: ${imagePath}`);
     const img = await loadImg(imagePath);
     const imageName = imagePath.split('/').pop().split('.')[0]; // extrai nome base
+    
+    // ============================================================================
+    // FUNCIONALIDADE 1: CORRELAÇÃO BIDIMENSIONAL COM FILTROS
+    // ============================================================================
+    console.log("=" .repeat(70));
+    console.log("FUNCIONALIDADE 1: CORRELAÇÃO BIDIMENSIONAL");
+    console.log("=" .repeat(70));
     
     for (const filterFile of filterFiles) {
       try {
@@ -36,8 +43,8 @@ async function testAllFilters() {
         console.log(`   Máscara: ${filter.mask.length}x${filter.mask[0].length}`);
         
         // Aplica filtro
-        const result = await applyFilter(img, filter);
-        
+        const result = processImageWithFilter(img, filter);
+
         // Nome do arquivo de saída
         const filterName = filterFile.replace('.txt', '').replace('_', '-');
         const outputName = `outputs/${imageName}_${filterName}.png`;
@@ -59,15 +66,48 @@ async function testAllFilters() {
         console.error(`❌ Erro ao processar ${filterFile}:`, error.message);
       }
     }
+    
+    // ============================================================================
+    // FUNCIONALIDADE 2: EQUALIZAÇÃO + EXPANSÃO DE HISTOGRAMA LOCAL
+    // ============================================================================
+    console.log("\n" + "=".repeat(70));
+    console.log("FUNCIONALIDADE 2: EQUALIZAÇÃO + EXPANSÃO DE HISTOGRAMA LOCAL");
+    console.log("=".repeat(70));
+    
+    const tamanhosJanela = [
+      { w: 3, h: 3 },
+      { w: 5, h: 5 },
+      { w: 7, h: 7 },
+      { w: 9, h: 9 }
+    ];
+    
+    for (const {w, h} of tamanhosJanela) {
+      try {
+        console.log(`\n📊 Aplicando equalização+expansão local ${w}x${h}...`);
+        const resultado = await applyLocalHistogramProcessing(img, w, h);
+        const outputName = `outputs/${imageName}_histogram_local_${w}x${h}.png`;
+        await resultado.write(outputName);
+        console.log(`✅ Salvo: ${outputName}`);
+        
+      } catch (error) {
+        console.error(`❌ Erro no processamento ${w}x${h}: ${error.message}`);
+      }
+    }
+    
+    // Salva original para comparação
+    console.log("\n📋 Salvando imagem original para comparação...");
+    await img.write(`outputs/${imageName}_original.png`);
+    console.log(`✅ Original salva: outputs/${imageName}_original.png`);
   }
   
-  console.log("🎉 Teste de todos os filtros concluído!");
+  console.log("\n🎉 SISTEMA COMPLETO FINALIZADO!");
+  console.log("📁 Verifique a pasta 'outputs/' para todos os resultados");
 }
 
 // Função especial para visualização do Sobel (valor absoluto + expansão)
 async function applySobelVisualization(image, filter) {
   // Aplica filtro normal
-  const result = await applyFilter(image, filter);
+  const result =  processImageWithFilter(image, filter);
   
   // Aplica valor absoluto e encontra min/max para expansão
   let minVal = 255, maxVal = 0;

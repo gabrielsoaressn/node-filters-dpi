@@ -1,88 +1,119 @@
-import { Jimp } from "jimp";
+// Pega o valor RGB de um pixel específico na imagem
+function getPixelRGB(image, x, y) {
+    const pixelIndex = 4 * (y * image.bitmap.width + x);
+    return {
+        r: image.bitmap.data[pixelIndex + 0],
+        g: image.bitmap.data[pixelIndex + 1], 
+        b: image.bitmap.data[pixelIndex + 2]
+    };
+}
 
-export async function applyFilter(image, filter) {
-    const { mask, bias, activation } = filter;
+// Aplica a máscara em uma posição específica
+function applyMaskAtPosition(image, centerX, centerY, mask, anchorX, anchorY) {
+    const maskHeight = mask.length;
+    const maskWidth = mask[0].length;
     
-    // Obtendo dados da imagem
-    const { width, height } = image.bitmap;
+    let totalR = 0;
+    let totalG = 0; 
+    let totalB = 0;
     
-    // Obtendo dados da máscara
-    const kH = mask.length; // altura da máscara -> quantidade de arrays
-    const kW = mask[0].length; // largura da máscara -> quantidade de colunas na linha 0
-    
-    // Pixel central da máscara
-    const anchorY = Math.floor(kH / 2);
-    const anchorX = Math.floor(kW / 2);
-    
-    // Dimensões da nova imagem (sem bordas)
-    const newWidth = width - (kW - 1);
-    const newHeight = height - (kH - 1);
-    
-    // Criando buffer de saída
-    const outputData = new Uint8ClampedArray(newWidth * newHeight * 4);
-    
-    // Loop pelos pixels
-    for (let y = anchorY; y < height - anchorY; y++) {
-        for (let x = anchorX; x < width - anchorX; x++) {
-            let accR = 0, accG = 0, accB = 0; // RGB acumulados
+    // Percorre todos os elementos da máscara
+    for (let maskY = 0; maskY < maskHeight; maskY++) {
+        for (let maskX = 0; maskX < maskWidth; maskX++) {
             
-            // Loop na máscara
-            for (let ky = 0; ky < kH; ky++) {
-                for (let kx = 0; kx < kW; kx++) {
-                    const srcX = x + (kx - anchorX);
-                    const srcY = y + (ky - anchorY);
-                    
-                    // Pega cor do vizinho (r,g,b)
-                    const idx = 4 * (srcY * image.bitmap.width + srcX);
-                    const r = image.bitmap.data[idx + 0];
-                    const g = image.bitmap.data[idx + 1];
-                    const b = image.bitmap.data[idx + 2];
-                    
-                    // Peso da máscara
-                    const w = mask[ky][kx];
-                    accR += r * w;
-                    accG += g * w;
-                    accB += b * w;
-                }
-            }
+            // Calcula onde buscar o pixel na imagem original
+            const imageX = centerX + (maskX - anchorX);
+            const imageY = centerY + (maskY - anchorY);
             
-            // ✅ CORREÇÃO: Bias aplicado DEPOIS da convolução completa
-            accR += bias;
-            accG += bias;
-            accB += bias;
+            // Pega a cor do pixel
+            const pixel = getPixelRGB(image, imageX, imageY);
             
-            // Para demonstrar diferença do ReLU, vamos tratar valores negativos diferente:
-            if (activation) {
-                // COM ReLU: valores negativos viram 0
-                accR = Math.max(0, accR);
-                accG = Math.max(0, accG);
-                accB = Math.max(0, accB);
-            } else {
-                // SEM ReLU: valores negativos viram valor absoluto (para visualização)
-                // Isso criará diferença visual perceptível
-                accR = Math.abs(accR);
-                accG = Math.abs(accG);
-                accB = Math.abs(accB);
-            }
+            // Pega o peso da máscara nesta posição
+            const maskWeight = mask[maskY][maskX];
             
-            // Clamp final para valores RGB válidos (0-255)
-            accR = Math.min(255, accR);
-            accG = Math.min(255, accG);
-            accB = Math.min(255, accB);
-            
-            // Escreve no buffer de saída
-            const idx = 4 * ((y - anchorY) * newWidth + (x - anchorX));
-            outputData[idx + 0] = accR;
-            outputData[idx + 1] = accG;
-            outputData[idx + 2] = accB;
-            outputData[idx + 3] = 255; // alpha fixo (opaco)
+            // Multiplica cor do pixel pelo peso da máscara e acumula
+            totalR += pixel.r * maskWeight;
+            totalG += pixel.g * maskWeight;
+            totalB += pixel.b * maskWeight;
         }
     }
     
-    const outputImage = new Jimp({ width: newWidth, height: newHeight });
-    for (let i = 0; i < outputData.length; i++) {
-        outputImage.bitmap.data[i] = outputData[i];
+    return { r: totalR, g: totalG, b: totalB };
+}
+
+// Função que adiciona bias aos valores RGB
+function addBias(rgbValues, bias) {
+    return {
+        r: rgbValues.r + bias,
+        g: rgbValues.g + bias,
+        b: rgbValues.b + bias
+    };
+}
+
+// Função que aplica a função de ativação (ReLU ou valor absoluto)
+function applyActivation(rgbValues, useActivation) {
+    if (useActivation) {
+        // ReLU: valores negativos viram 0
+        return {
+            r: Math.max(0, rgbValues.r),
+            g: Math.max(0, rgbValues.g),
+            b: Math.max(0, rgbValues.b)
+        };
+    } else {
+        // Sem ReLU: usa valor absoluto para visualização
+        return {
+            r: Math.abs(rgbValues.r),
+            g: Math.abs(rgbValues.g),
+            b: Math.abs(rgbValues.b)
+        };
     }
+}
+
+// Função que limita os valores RGB entre 0 e 255
+function clampRGB(rgbValues) {
+    return {
+        r: Math.min(255, rgbValues.r),
+        g: Math.min(255, rgbValues.g),
+        b: Math.min(255, rgbValues.b)
+    };
+}
+
+// Função que escreve um pixel RGB no buffer de saída
+function writePixelToOutput(outputData, outputX, outputY, outputWidth, rgbValues) {
+    const outputIndex = 4 * (outputY * outputWidth + outputX);
     
-    return outputImage;
+    outputData[outputIndex + 0] = rgbValues.r;     // Red
+    outputData[outputIndex + 1] = rgbValues.g;     // Green  
+    outputData[outputIndex + 2] = rgbValues.b;     // Blue
+    outputData[outputIndex + 3] = 255;             // Alpha (transparência)
+}
+
+
+export function processImageWithFilter(image, mask, bias, activation, outputData, newWidth, newHeight) {
+    const imageWidth = image.bitmap.width;
+    const imageHeight = image.bitmap.height;
+    
+    const maskHeight = mask.length;
+    const maskWidth = mask[0].length;
+    
+    // Calcula o centro da máscara
+    const anchorY = Math.floor(maskHeight / 2);
+    const anchorX = Math.floor(maskWidth / 2);
+    
+    for (let imageY = anchorY; imageY < imageHeight - anchorY; imageY++) {
+        for (let imageX = anchorX; imageX < imageWidth - anchorX; imageX++) {
+            
+            let pixelResult = applyMaskAtPosition(image, imageX, imageY, mask, anchorX, anchorY);
+            pixelResult = addBias(pixelResult, bias);
+            pixelResult = applyActivation(pixelResult, activation);
+            pixelResult = clampRGB(pixelResult);
+            
+            // Calcula posição na imagem de saída
+            const outputX = imageX - anchorX;
+            const outputY = imageY - anchorY;
+            
+            // Escreve o resultado no buffer de saída
+            writePixelToOutput(outputData, outputX, outputY, newWidth, pixelResult);
+        }
+    }
 }
