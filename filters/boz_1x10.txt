@@ -1,0 +1,5 @@
+name=Box 1x10
+bias=0
+activation=false
+mask=
+1 1 1 1 1 1 1 1 1 1
